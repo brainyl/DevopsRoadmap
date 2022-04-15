@@ -75,8 +75,8 @@ aws cloudformation update-stack --template-body file://infrastructure/artifact-m
 
 aws cloudformation delete-stack --stack-name ArtifactManagementStack
 
-aws cloudformation create-stack --template-body file://infrastructure/service-pipeline.yaml --stack-name DevopsRoadmapDevelopmentPipeline --role-arn arn:aws:iam::559094747579:role/CloudFormationRole --capabilities CAPABILITY_IAM
+aws cloudformation create-stack --template-body file://infrastructure/service-pipeline.yaml --stack-name DevopsRoadmapPipeline --role-arn arn:aws:iam::559094747579:role/CloudFormationRole --capabilities CAPABILITY_IAM
 
-aws cloudformation update-stack --template-body file://infrastructure/service-pipeline.yaml --stack-name DevopsRoadmapDevelopmentPipeline --role-arn arn:aws:iam::559094747579:role/CloudFormationRole --capabilities CAPABILITY_IAM
+aws cloudformation update-stack --template-body file://infrastructure/service-pipeline.yaml --stack-name DevopsRoadmapPipeline --role-arn arn:aws:iam::559094747579:role/CloudFormationRole --capabilities CAPABILITY_IAM
 
-aws cloudformation delete-stack --stack-name DevopsRoadmapDevelopmentPipeline
+aws cloudformation delete-stack --stack-name DevopsRoadmapPipeline

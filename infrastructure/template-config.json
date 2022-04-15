@@ -3,6 +3,6 @@
     "Service": "DevopsRoadmap"
   },
   "Parameters": {
-    "Stage": "development"
+    "Stage": "prod"
   }
 }

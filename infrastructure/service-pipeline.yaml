@@ -1,7 +1,7 @@
 Parameters:
   PipelineBranch:
     Type: String
-    Default: development
+    Default: master
     AllowedPattern: ^[a-zA-Z0-9][a-zA-Z0-9-_/]+$
     Description: The branch this pipeline will be deployed for
   CodeOwner:
