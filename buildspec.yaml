@@ -1,0 +1,25 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 12
+
+  pre_build:
+    commands:
+      - npm install --g yarn
+
+  build:
+    commands:
+      - yarn install
+      - sam package --template infrastructure/template.yaml --s3-bucket $CODE_ARTIFACT_BUCKET --s3-prefix devopsroadmap --output-template-file infrastructure/template.yaml
+
+cache:
+  paths:
+    - '/node_modules/**/*'
+
+artifacts:
+  type: zip
+  files:
+    - infrastructure/template.yaml
+    - infrastructure/template-config.json

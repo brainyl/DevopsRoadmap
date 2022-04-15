@@ -66,3 +66,17 @@ More information about the usage of this directory in [the documentation](https:
 This directory contains your Vuex store files. Creating a file in this directory automatically activates Vuex.
 
 More information about the usage of this directory in [the documentation](https://nuxtjs.org/docs/2.x/directory-structure/store).
+
+## Infrastructure
+
+aws cloudformation create-stack --template-body file://infrastructure/artifact-management.yaml --stack-name ArtifactManagementStack --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation update-stack --template-body file://infrastructure/artifact-management.yaml --stack-name ArtifactManagementStack --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation delete-stack --stack-name ArtifactManagementStack
+
+aws cloudformation create-stack --template-body file://infrastructure/service-pipeline.yaml --stack-name DevopsRoadmapDevelopmentPipeline --role-arn arn:aws:iam::559094747579:role/CloudFormationRole --capabilities CAPABILITY_IAM
+
+aws cloudformation update-stack --template-body file://infrastructure/service-pipeline.yaml --stack-name DevopsRoadmapDevelopmentPipeline --role-arn arn:aws:iam::559094747579:role/CloudFormationRole --capabilities CAPABILITY_IAM
+
+aws cloudformation delete-stack --stack-name DevopsRoadmapDevelopmentPipeline

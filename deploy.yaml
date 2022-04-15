@@ -1,0 +1,27 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 12
+
+  pre_build:
+    commands:
+      - npm install --g yarn
+      - yarn global add gulp@4.0.2
+      - yarn add --dev gulp@4.0.2 gulp-awspublish@5.0.1 gulp-cloudfront-invalidate-aws-publish@1.0.0 concurrent-transform@1.0.0
+
+  build:
+    commands:
+      - TEMP_ROLE=$(aws sts assume-role --role-arn $DEPLOYMENT_ROLE_ARN --role-session-name deploy)
+      - export TEMP_ROLE
+      - export AWS_ACCESS_KEY_ID=$(echo "${TEMP_ROLE}" | jq -r '.Credentials.AccessKeyId')
+      - export AWS_SECRET_ACCESS_KEY=$(echo "${TEMP_ROLE}" | jq -r '.Credentials.SecretAccessKey')
+      - export AWS_SESSION_TOKEN=$(echo "${TEMP_ROLE}" | jq -r '.Credentials.SessionToken')
+      - yarn install
+      - yarn generate
+      - gulp deploy
+
+cache:
+  paths:
+    - '/node_modules/**/*'
