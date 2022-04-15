@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Resources:
+  CloudFormationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CloudFormationRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudformation.amazonaws.com
+      Policies:
+        - PolicyName: CloudFormationPolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                NotAction:
+                  - iam:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:CreatePolicy
+                  - iam:CreatePolicyVersion
+                  - iam:CreateRole
+                  - iam:DeletePolicy
+                  - iam:DeletePolicyVersion
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:Get*
+                  - iam:List*
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                  - iam:TagRole
+                Resource:
+                  Fn::Sub: 'arn:aws:iam::${AWS::AccountId}:*'
+
+  CodeArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: devops-roadmap-code-artifact-bucket
+
+  CodeArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: CodeArtifactsBucket
+      PolicyDocument:
+        Statement:
+          - Sid: Allow read access within the account
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+            Effect: Allow
+            Resource:
+              - Fn::Sub: '${CodeArtifactsBucket.Arn}/*'
+              - Fn::Sub: '${CodeArtifactsBucket.Arn}'
+            Principal: '*'
+            Condition:
+              StringEquals:
+                aws:PrincipalAccount: 559094747579
+
+  CodeBuildPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Manages permissions required by our CodeBuild role
+      ManagedPolicyName: CodeBuildManagedPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowLogs
+            Effect: Allow
+            Resource: '*'
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+          - Sid: AllowS3Access
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt: [CodeArtifactsBucket, Arn]
+              - Fn::Sub: ${CodeArtifactsBucket.Arn}/*
+            Action:
+              - s3:PutObject*
+              - s3:GetObject*
+              - s3:List*
+          - Sid: AllowCloudFormation
+            Effect: Allow
+            Resource: '*'
+            Action:
+              - cloudformation:Describe*
+              - cloudformation:Get*
+              - cloudformation:List*
+              - cloudformation:ValidateTemplate
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CodeBuildRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+      ManagedPolicyArns:
+        - Ref: CodeBuildPolicy
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CodePipelineRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Sid: 1
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Resource: '*'
+                Action:
+                  - codestar-connections:UseConnection
+              - Effect: Allow
+                Resource:
+                  - Fn::Sub: arn:aws:s3:::${CodeArtifactsBucket}
+                  - Fn::Sub: arn:aws:s3:::${CodeArtifactsBucket}/*
+                Action:
+                  - s3:PutObject*
+                  - s3:GetObject*
+                  - s3:GetBucketVersioning
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StopBuild
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:ValidateTemplate
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - Fn::GetAtt: [CloudFormationRole, Arn]
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: '*'
+Outputs:
+  CloudFormationRole:
+    Value:
+      Fn::GetAtt: [CloudFormationRole, Arn]
+    Description: An IAM role for CloudFormation to build our services
+    Export:
+      Name: CloudFormationRole
+
+  CodeArtifactsBucket:
+    Value:
+      Ref: CodeArtifactsBucket
+    Description: a shared bucket for managing artifacts
+    Export:
+      Name: CodeArtifactsBucket
+
+  CodeBuildRole:
+    Value:
+      Fn::GetAtt: [CodeBuildRole, Arn]
+    Description: a role used by for codebuild jobs
+    Export:
+      Name: CodeBuildRole
+
+  CodePipelineRole:
+    Value:
+      Fn::GetAtt: [CodePipelineRole, Arn]
+    Description: a role used for pipeline execution
+    Export:
+      Name: CodePipelineRole

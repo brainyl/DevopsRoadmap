@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Transform: 'AWS::Serverless-2016-10-31'
+
+Parameters:
+  Stage:
+    Type: String
+    Description: The name of the stage we are deploying to
+    Default: prod
+
+Resources:
+  OriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: Allow CloudFront access to secure s3 bucket
+
+  AppBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  AppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: AppBucket
+      PolicyDocument:
+        Statement:
+          - Sid: Grant CloudFront Identity S3 access
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+            Effect: Allow
+            Resource:
+              - Fn::Sub: '${AppBucket.Arn}/*'
+              - Fn::Sub: '${AppBucket.Arn}'
+            Principal:
+              CanonicalUser:
+                Fn::GetAtt: [OriginAccessIdentity, S3CanonicalUserId]
+
+  CloudFrontLambdaHookRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - edgelambda.amazonaws.com
+                - lambda.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  SPARequestOriginTrigger:
+    Type: AWS::Serverless::Function
+    Properties:
+      AutoPublishAlias: live
+      InlineCode: >
+        exports.handler = function(event, context, callback) {
+          const request = event.Records[0].cf.request;
+          if (!request.uri.match(/^\/(favicon.ico$|((assets|css|favicons|fonts|img|js|_nuxt|)\/))/)) {
+            request.uri = '/index.html';
+          }
+          callback(null, request);
+        }
+      Handler: index.handler
+      Role:
+        Fn::GetAtt: [CloudFrontLambdaHookRole, Arn]
+      Runtime: nodejs12.x
+
+  CDN:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: AppBucket
+            DomainName: !GetAtt AppBucket.DomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${OriginAccessIdentity}'
+        DefaultCacheBehavior:
+          TargetOriginId: AppBucket
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          ViewerProtocolPolicy: redirect-to-https
+          ForwardedValues:
+            QueryString: true
+          LambdaFunctionAssociations:
+            - EventType: origin-request
+              LambdaFunctionARN:
+                Fn::Sub: '${SPARequestOriginTrigger.Version}'
+
+  AppBucketDeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/CodeBuildRole'
+      Path: /
+      Policies:
+        - PolicyName: AllowAppBucketAccess
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:GetObject
+                  - s3:GetObjectAcl
+                  - s3:DeleteObject
+                  - s3:ListMultipartUploadParts
+                  - s3:AbortMultipartUpload
+                Resource:
+                  - Fn::Sub: '${AppBucket.Arn}'
+                  - Fn::Sub: '${AppBucket.Arn}/*'
+        - PolicyName: AllowAppBucketList
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt AppBucket.Arn
+        - PolicyName: AllowCDNInvalidation
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetInvalidation
+                  - cloudfront:ListInvalidations
+                  - cloudfront:UnknownOperations
+                Resource: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CDN}'
+
+Outputs:
+  CloudFrontDomain:
+    Description: The CloudFront URL to access the app
+    Value: !GetAtt CDN.DomainName
+
+  CloudFrontID:
+    Description: The CloudFront ID
+    Value:
+      Ref: CDN
+
+  AppBucket:
+    Value:
+      Ref: AppBucket
+    Description: The bucket to publish the APP to
+    Export:
+      Name:
+        Fn::Sub: '${Stage}-AppBucket'
+
+  AppBucketDeploymentRole:
+    Value:
+      Fn::GetAtt: [AppBucketDeploymentRole, Arn]
+    Description: The role used for deploying the application
+    Export:
+      Name:
+        Fn::Sub: '${Stage}-AppBucketDeploymentRole'

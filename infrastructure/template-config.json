@@ -1,0 +1,8 @@
+{
+  "Tags": {
+    "Service": "DevopsRoadmap"
+  },
+  "Parameters": {
+    "Stage": "prod"
+  }
+}

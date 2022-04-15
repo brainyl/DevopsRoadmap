@@ -1,0 +1,494 @@
+Parameters:
+  PipelineBranch:
+    Type: String
+    Default: master
+    AllowedPattern: ^[a-zA-Z0-9][a-zA-Z0-9-_/]+$
+    Description: The branch this pipeline will be deployed for
+  CodeOwner:
+    Type: String
+    Default: brainyl
+    Description: The github repo owner
+  CodeRepo:
+    Type: String
+    AllowedPattern: ^[a-zA-Z0-9][a-zA-Z0-9-]+$
+    Description: The repository name
+    Default: DevopsRoadmap
+  ProjectName:
+    Type: String
+    AllowedPattern: ^[A-Z][a-zA-Z0-9]+$
+    ConstraintDescription: Has to be a camel cased name
+    Description: Name of project
+    Default: DevopsRoadmap
+  BuildComputeType:
+    Type: String
+    Default: BUILD_GENERAL1_SMALL
+    AllowedValues:
+      - BUILD_GENERAL1_SMALL
+      - BUILD_GENERAL1_MEDIUM
+      - BUILD_GENERAL1_LARGE
+    Description: Compute type for the build
+  BuildSpecFile:
+    Type: String
+    Default: buildspec.yaml
+    AllowedPattern: "[a-zA-Z\\/_-]*[a-zA-Z_-]+\\.(yaml|yml|json)$"
+    ConstraintDescription: Has to be a json or yaml with alphabethic type
+    Description: Path to the build spec file
+  ProjectBuildRoleArn:
+    Type: String
+    Default: ''
+    Description: Custom role for project build
+  BuildImage:
+    Type: String
+    Default: aws/codebuild/standard:4.0
+    Description: Image to use for the build
+  DeployComputeType:
+    Type: String
+    Default: BUILD_GENERAL1_SMALL
+    AllowedValues:
+      - BUILD_GENERAL1_SMALL
+      - BUILD_GENERAL1_MEDIUM
+      - BUILD_GENERAL1_LARGE
+    Description: Compute type for the deploy
+  DeploySpecFile:
+    Type: String
+    Default: deploy.yaml
+    AllowedPattern: "[a-zA-Z\\/_-]*[a-zA-Z_-]+\\.(yaml|yml|json)$"
+    ConstraintDescription: Has to be a json or yaml with alphabethic type
+    Description: Path to the deploy spec file
+  ProjectDeployRoleArn:
+    Type: String
+    Default: ''
+    Description: Custom role for project deploy
+  DeployImage:
+    Type: String
+    Default: aws/codebuild/standard:4.0
+    Description: Image to use for the deploy
+  TestRunnerRoleArn:
+    Type: String
+    Default: ''
+    Description: ARN for a custom TestRunner role
+  TestSpecFile:
+    Type: String
+    Default: testspec.yaml
+    AllowedPattern: "[a-zA-Z\\/_-]*[a-zA-Z_-]+\\.(yaml|yml|json)$"
+    ConstraintDescription: Must be a yaml or json file with an alphabetic path
+    Description: Path to your CodeBuild buildspec for running tests on PRs/master
+  TestComputeType:
+    Type: String
+    Default: BUILD_GENERAL1_SMALL
+    AllowedValues:
+      - BUILD_GENERAL1_SMALL
+      - BUILD_GENERAL1_MEDIUM
+      - BUILD_GENERAL1_LARGE
+    Description: Compute type for the tests
+  TestImage:
+    Type: String
+    Default: aws/codebuild/standard:4.0
+    Description: Docker image for the test run
+  TestGitCloneDepth:
+    Type: Number
+    Default: 1
+    Description: The depth of history to download. Default value is 1. Minimum value is 0. If this value is 0, greater than 25, or not provided, then the full history is downloaded with each build project. If your source type is Amazon S3, this value is not supported.
+    MinValue: 0
+  IncludeTestStage:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Include test stage
+  PipelineStage:
+    Type: String
+    Default: dev
+  StackNameOverride:
+    Type: String
+    Default: ''
+    Description: Name of an existing CloudFormation stack to update
+  Email:
+    Description: The email address for receiving pipeline notifications
+    Type: String
+    Default: 'brainyl01@icloud.com'
+
+Conditions:
+  IsMaster:
+    Fn::Equals:
+      - Ref: PipelineBranch
+      - master
+  HasProjectBuildRole:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: ProjectBuildRoleArn
+          - ''
+  HasProjectDeployRole:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: ProjectDeployRoleArn
+          - ''
+  HasTestRunnerRole:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: TestRunnerRoleArn
+          - ''
+  ShouldIncludeTestStage:
+    Fn::Equals:
+      - Ref: IncludeTestStage
+      - 'true'
+  HasStackNameOverride:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: StackNameOverride
+          - ''
+Resources:
+  CodePipelineSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref Email
+          Protocol: email
+
+  CodePipelineSNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - Ref: CodePipelineSNSTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCodePipelinePublish
+            Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sns:Publish
+            Resource:
+              Ref: CodePipelineSNSTopic
+          - Sid: AllowEventsBridgePublish
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource:
+              Ref: CodePipelineSNSTopic
+
+  ProjectBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name:
+        Fn::Sub: ${ProjectName}-Build
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType:
+          Ref: BuildComputeType
+        Image:
+          Ref: BuildImage
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: CODE_ARTIFACT_BUCKET
+            Type: PLAINTEXT
+            Value:
+              Fn::ImportValue: CodeArtifactsBucket
+      Cache:
+        Type: S3
+        Location:
+          Fn::Sub:
+            - ${bucketName}/${projectName}-build-cache
+            - bucketName:
+                Fn::ImportValue: CodeArtifactsBucket
+              projectName:
+                Ref: ProjectName
+      Source:
+        BuildSpec:
+          Ref: BuildSpecFile
+        Type: CODEPIPELINE
+      Description:
+        Fn::Sub: Builds ${ProjectName}
+      ServiceRole:
+        Fn::If:
+          - HasProjectBuildRole
+          - Ref: ProjectBuildRoleArn
+          - Fn::ImportValue: CodeBuildRole
+
+  TestRunner:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name:
+        Fn::Sub: ${ProjectName}-Test
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType:
+          Ref: TestComputeType
+        Image:
+          Ref: TestImage
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: CODE_ARTIFACT_BUCKET
+            Type: PLAINTEXT
+            Value:
+              Fn::ImportValue: CodeArtifactsBucket
+      Cache:
+        Type: S3
+        Location:
+          Fn::Sub:
+            - ${bucketName}/${projectName}-test-cache
+            - bucketName:
+                Fn::ImportValue: CodeArtifactsBucket
+              projectName:
+                Ref: ProjectName
+      Source:
+        BuildSpec:
+          Ref: TestSpecFile
+        GitCloneDepth:
+          Ref: TestGitCloneDepth
+        Location:
+          Fn::Sub: https://github.com/${CodeOwner}/${CodeRepo}.git
+        Type: GITHUB
+        Auth:
+          Type: OAUTH
+      Description:
+        Fn::Sub: Runs tests for ${ProjectName}
+      ServiceRole:
+        Fn::If:
+          - HasTestRunnerRole
+          - Ref: TestRunnerRoleArn
+          - Fn::ImportValue: CodeBuildRole
+
+  ProjectDeploy:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name:
+        Fn::Sub: ${ProjectName}-Deploy
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType:
+          Ref: DeployComputeType
+        Image:
+          Ref: DeployImage
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: CODE_ARTIFACT_BUCKET
+            Type: PLAINTEXT
+            Value:
+              Fn::ImportValue: CodeArtifactsBucket
+      Cache:
+        Type: S3
+        Location:
+          Fn::Sub:
+            - ${bucketName}/${projectName}-deploy-cache
+            - bucketName:
+                Fn::ImportValue: CodeArtifactsBucket
+              projectName:
+                Ref: ProjectName
+      Source:
+        BuildSpec:
+          Ref: DeploySpecFile
+        Type: CODEPIPELINE
+      Description:
+        Fn::Sub: Deploys ${ProjectName}
+      ServiceRole:
+        Fn::If:
+          - HasProjectDeployRole
+          - Ref: ProjectDeployRoleArn
+          - Fn::ImportValue: CodeBuildRole
+
+  GithubConnection:
+    Type: AWS::CodeStarConnections::Connection
+    Properties:
+      ConnectionName:
+        Fn::Sub: ${ProjectName}${PipelineBranch}Connect
+      ProviderType: GitHub
+      Tags:
+        - Key: Project
+          Value:
+            Fn::Sub: ${ProjectName}
+
+  ServicePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name:
+        Fn::Join:
+          - ''
+          - - Ref: CodeRepo
+            - '-'
+            - Ref: PipelineBranch
+      ArtifactStore:
+        Type: S3
+        Location:
+          Fn::ImportValue: CodeArtifactsBucket
+      RestartExecutionOnUpdate: true
+      RoleArn:
+        Fn::ImportValue: CodePipelineRole
+      Stages:
+        # https://docs.aws.amazon.com/codepipeline/latest/userguide/action-reference-CodestarConnectionSource.html#action-reference-CodestarConnectionSource-type
+        - Name: Source
+          Actions:
+            - Name: Source
+              RunOrder: 1
+              Namespace: SourceVariables
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: '1'
+              Configuration:
+                ConnectionArn:
+                  Ref: GithubConnection
+                FullRepositoryId:
+                  Fn::Sub: ${CodeOwner}/${CodeRepo}
+                BranchName:
+                  Fn::Sub: ${PipelineBranch}
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Fn::If:
+            - ShouldIncludeTestStage
+            - Name: Test
+              Actions:
+                - Name: Test
+                  RunOrder: 1
+                  InputArtifacts:
+                    - Name: SourceArtifact
+                  ActionTypeId:
+                    Category: Test
+                    Owner: AWS
+                    Provider: CodeBuild
+                    Version: '1'
+                  Configuration:
+                    ProjectName:
+                      Ref: TestRunner
+                  OutputArtifacts:
+                    - Name: TestArtifact
+            - Ref: AWS::NoValue
+        - Name: Build
+          Actions:
+            - Name: Build-Project
+              RunOrder: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName:
+                  Ref: ProjectBuild
+              OutputArtifacts:
+                - Name: ProjectBuildArtifact
+        - Name: Release
+          Actions:
+            - Fn::If:
+                - IsMaster
+                - Name: ApproveRelease
+                  RunOrder: 1
+                  ActionTypeId:
+                    Category: Approval
+                    Owner: AWS
+                    Provider: Manual
+                    Version: '1'
+                  Configuration:
+                    NotificationArn: !Ref CodePipelineSNSTopic
+                    CustomData: !Sub 'Do you want to approve this release?'
+                - Ref: AWS::NoValue
+            - Name: CreateChangeSet
+              RunOrder: 2
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              InputArtifacts:
+                - Name: ProjectBuildArtifact
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                ChangeSetName: pipeline-changeset
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                StackName:
+                  Fn::If:
+                    - HasStackNameOverride
+                    - Ref: StackNameOverride
+                    - Fn::Sub: ${ProjectName}-${PipelineBranch}-Stack
+                TemplatePath: ProjectBuildArtifact::infrastructure/template.yaml
+                TemplateConfiguration: ProjectBuildArtifact::infrastructure/template-config.json
+                RoleArn:
+                  Fn::ImportValue: CloudFormationRole
+            - Name: ExecuteChangeSet
+              RunOrder: 3
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                StackName:
+                  Fn::If:
+                    - HasStackNameOverride
+                    - Ref: StackNameOverride
+                    - Fn::Sub: ${ProjectName}-${PipelineBranch}-Stack
+                ChangeSetName: pipeline-changeset
+                OutputFileName: StackOutput.json
+              OutputArtifacts:
+                - Name: CloudFormationArtifact
+              Namespace: ExecuteChangeSetNamespace
+        - Name: Deploy
+          Actions:
+            - Name: Deploy-Project
+              RunOrder: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+                - Name: CloudFormationArtifact
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName:
+                  Ref: ProjectDeploy
+                PrimarySource: SourceArtifact
+                EnvironmentVariables:
+                  Fn::Join:
+                    - ''
+                    - - '['
+                      - '{"name": "DEPLOYMENT_ROLE_ARN", "value": "'
+                      - '#{ExecuteChangeSetNamespace.AppBucketDeploymentRole}'
+                      - '", "type": "PLAINTEXT"}'
+                      - ',{"name": "AWS_BUCKET_NAME", "value": "'
+                      - '#{ExecuteChangeSetNamespace.AppBucket}'
+                      - '", "type": "PLAINTEXT"}'
+                      - ',{"name": "AWS_CLOUDFRONT", "value": "'
+                      - '#{ExecuteChangeSetNamespace.CloudFrontID}'
+                      - '", "type": "PLAINTEXT"}'
+                      - ']'
+
+      Tags:
+        - Key: PipelineType
+          Value: service
+
+  PipelineActionFailureEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description:
+        Fn::Sub: ${ProjectName} CodePipeline Failure
+      EventPattern:
+        source:
+          - aws.codepipeline
+        detail-type:
+          - CodePipeline Action Execution State Change
+        detail:
+          state:
+            - FAILED
+          pipeline:
+            - Ref: ServicePipeline
+      Targets:
+        - Arn:
+            Ref: CodePipelineSNSTopic
+          Id:
+            Fn::Sub: ${ProjectName}-Pipeline-Failure-Notification-SNS-Topic
+
+Outputs:
+  Pipeline:
+    Description: Name of the Service Pipeline
+    Value:
+      Ref: ServicePipeline
