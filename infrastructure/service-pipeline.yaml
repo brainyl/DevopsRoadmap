@@ -97,9 +97,6 @@ Parameters:
       - 'true'
       - 'false'
     Description: Include test stage
-  PipelineStage:
-    Type: String
-    Default: dev
   StackNameOverride:
     Type: String
     Default: ''
@@ -173,7 +170,7 @@ Resources:
     Type: AWS::CodeBuild::Project
     Properties:
       Name:
-        Fn::Sub: ${ProjectName}-Build
+        Fn::Sub: ${ProjectName}-${PipelineBranch}-Build
       Artifacts:
         Type: CODEPIPELINE
       Environment:
@@ -212,7 +209,7 @@ Resources:
     Type: AWS::CodeBuild::Project
     Properties:
       Name:
-        Fn::Sub: ${ProjectName}-Test
+        Fn::Sub: ${ProjectName}-${PipelineBranch}-Test
       Artifacts:
         Type: NO_ARTIFACTS
       Environment:
@@ -257,7 +254,7 @@ Resources:
     Type: AWS::CodeBuild::Project
     Properties:
       Name:
-        Fn::Sub: ${ProjectName}-Deploy
+        Fn::Sub: ${ProjectName}-${PipelineBranch}-Deploy
       Artifacts:
         Type: CODEPIPELINE
       Environment:
